@@ -13,6 +13,7 @@ block_example <- list(index = 1,
                  proof = 9,
                  new_hash = NULL)
 
+
 # Function that creates a hashed "block"; https://learncryptography.com/hash-functions/what-are-hash-functions
   hash_block <- function(block){
     block$new_hash <- digest(c(block$index,
