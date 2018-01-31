@@ -83,5 +83,5 @@ previous_block <- blockchain[[1]]
     print(paste0("Block ", block_to_add$index, " has been added"))
   }
   
-  
+## Add function to measure system.time here
   
