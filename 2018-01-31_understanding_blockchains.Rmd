@@ -1,0 +1,187 @@
+---
+title: "Understanding Blockchains by Coding One in R"
+author: "Johannes J. Mueller"
+date: "31 Januar 2018"
+output: html_document
+---
+```{r setup, include=FALSE}
+if (!require(digest)){ 
+        install.packages(digest) 
+} 
+```
+
+Everybody is talking about cryptocurrencies now – thanks to the hype about BitCoin. Much more interesting than whether there is a BitCoin bubble or not is the question how this technology actually works and what it is capable of. The story of Bitcoin started with a whitepaper called ["Bitcoin: A Peer-to-Peer Electronic Cash System"](https://bitcoin.org/bitcoin.pdf) in 2008. In this paper the author by the name Satoshi Nakamoto (there is still a large debate over who Satoshi really is) introduces a new, revolutionary technology and idea: an decentralised electronic currency that runs on something called the *blockchain*. The idea spread from this point and can be applied to many other areas now. 
+ 
+I first got introduced to blockchains at a meeting of the Blockchain Society at Oxford. Everybody there seemed very excited about the potential of this new technology. And to be fair, it does sound intriguing: A decentralised, incorruptible database of monetary transactions, contracts or whatever you like (e.g. un-hackable voting machines). The promise of the blockchain to the crypto community is that it will disrupt entire industries by revolutionising trust in a way that we won't need any third parties like banks or lawyers anymore – we just need the power of cryptography.
+
+While the basic idea is quite intuitive, the question how blockchains actually work on a technical level is a bit harder to understand. Last week I came across this article on R bloggers, where [BigData Dog](https://www.r-bloggers.com/building-your-own-blockchain-in-r/) builds a blockchain entirely in R. A blockchain built in R might not be the most efficient and practical thing in the world but it is a great way to understand the programming and crypto principles behind it. I wanted to understand it as well and that’s why I implemented a smaller version of the blockchain in R: "If you can code it, you certainly understand it".
+
+
+## What is a blockchain?
+
+Let's say our goal is to store some data in a secure way. To this end we first store the data in a container – which we call a block. In the case of BitCoin each block contains several financial transactions. When there are new transactions (or there is new data) a new block will be created and will be added together with previous blocks to form a chain – the blockchain. Let's take a look at how blockchains are making use of cryptography to become virtually un-hackable.
+
+### 1. Blocks
+
+```{r example_block}
+block_example <- list(index = 1,
+                 timestamp = "2018-01-05 17.00 MST",
+                 data = "some data",
+                 previous_hash = 0,
+                 proof = 9,
+                 new_hash = NULL)
+```
+
+Before we can start building the blockchain – a.k.a. chaining different containers with data together – we need to get to know two more concepts: Hashing and Proof-of-Work-Algorithms. 
+
+### 2. Hash
+
+A hash helps to ensure the integrity of a block by connecting it to the other blocks in the chain. A hash function takes something as an input and gives us a unique, encrypted output. An example would be the following: You give your friend a puzzle "Which is the better statistics program: Stata or R?" and you give her the hash of the correct solution: *"71ec0b920622cf4358bbc21d6a8b41f903584808db53ec07a8aa79119304ce86"*. She can now check on her own if she has the correct answer by just inputting her answer into the Hash-function (in our case the SHA256 algorithm):
+
+```{r hash}
+library("digest")
+
+digest("Stata" ,"sha256") # first try
+digest("R", "sha256") # second try
+```
+
+How does this help us? In our case we not only input information about the block (index, timestamp, data) to the hash function, but also the hash of the previous block. This means we can only calculate the valid hash if we know the hash of the previous block, which is created using the hash of the block before and so on and so forth. This provides us with an immutable, sequential chain of blocks. If we would alter one block afterwards we would have to calculate all the hashes for the sequential blocks again.
+
+```{r hash_block}
+#Function that creates a hashed "block"
+hash_block <- function(block){
+  block$new_hash <- digest(c(block$index,
+                             block$timestamp,
+                             block$data,
+                             block$previous_hash), "sha256")
+  return(block)
+}
+```
+
+### 3. Proof-of-Work
+
+If there is a lot of information that must be stored in the blockchain we will need to create a lot of new blocks. In many cases we want to control how many new blocks are created. In the case of cryptocurrencies for example coins would lose their value if there is an infinite amount of coins that can be created every second.
+
+Therefore, we add a so-called “Proof-of-Work” (PoW) algorithm which controls the difficulty of creating a new block. "Proof" means that the computer has performed a certain amount of work. In practice the goal is to create an item that is hard to create but easy to verify. I will use the following “task” as a PoW: find the next number that is divisible by 99 and divisable by the proof-number of the last block.
+
+```{r pow}
+### Simple Proof of Work Alogrithm
+proof_of_work <- function(last_proof){
+  proof <- last_proof + 1
+
+  # Increment the proof number until a number is found that is divisable by 99 and by the proof of the previous block
+  while (!(proof %% 99 == 0 & proof %% last_proof == 0 )){
+    proof <- proof + 1
+  }
+
+  return(proof)
+}
+```
+
+For blockchains like BitCoin or Ethereum the job of creating new blocks is done by so-called miners. When a new block has to be created, a computational problem is sent out to the network. The miner which solves the PoW problem first creates the new block and is rewarded in bitcoins (this is the way new BitCoins are actually created). This "lottery" of finding the new correct proof ensures that the power of creating new blocks is decentralised. When a new block is mined it is sent out to everybody so that every node in the network has a copy of the latest blockchain. The idea that the longest blockchain in the network (the one which "the most work was put into") is the valid version of the blockchain is called "decentralised consensus".
+
+In the case of BitCoin the PoW problem involves the problem of finding numbers that generate hashes with a certain amount of leading zeros (the best explanation I found is this video from [Savjee](https://www.youtube.com/watch?v=HneatE69814&t=3s)). To account for increasing computational speed and varying numbers of miners in the network the difficulty of the PoW can be adjusted to hold the time to create a new block constant at around ten minutes.
+
+### 4. Adding new blocks
+
+Now we know how a block looks like, how blocks are chained together using hashes and how the pace of creating new blocks is being regulated by PoWs. So let's put it together in a function
+
+```{r build_block}
+#A function that takes the previous block and normally some data (in our case the data is a string indicating which block in the chain it is)
+
+gen_new_block <- function(previous_block){
+
+  #Proof-of-Work
+  new_proof <- proof_of_work(previous_block$proof)
+
+  #Create new Block
+  new_block <- list(index = previous_block$index + 1,
+                    timestamp = Sys.time(),
+                    data = paste0("this is block ", previous_block$index +1),
+                    previous_hash = previous_block$new_hash,
+                    proof = new_proof)
+
+  #Hash the new Block
+  new_block_hashed <- hash_block(new_block)
+
+  return(new_block_hashed)
+}
+```
+
+Before we start building our blockchain we need to start the chain somewhere. This is done using a so-called Genesis Block. It contains no data and arbitrary values for proof and previous hash (as there is no previous block).
+
+```{r genesis_block}
+# Define Genesis Block (index 1 and arbitrary previous hash)
+block_genesis <-  list(index = 1,
+                       timestamp = Sys.time(),
+                       data = "Genesis Block",
+                       previous_hash = "0",
+                       proof = 1)
+```
+
+### 5. Building the Blockchain
+
+Now we can start building the blockchain. We start with the Genesis block and then add a few blocks using a loop.
+
+```{r blockchain}
+blockchain <- list(block_genesis)
+previous_block <- blockchain[[1]]
+
+  # How many blocks should we add to the chain after the genesis block
+  num_of_blocks_to_add <- 5
+
+  # Add blocks to the chain
+  for (i in 1: num_of_blocks_to_add){
+    block_to_add <- gen_new_block(previous_block) 
+    blockchain[i+1] <- list(block_to_add)
+    previous_block <- block_to_add
+
+    print(cat(paste0("Block ", block_to_add$index, " has been added", "\n",
+               "\t", "Proof: ", block_to_add$proof, "\n",
+               "\t", "Hash: ", block_to_add$new_hash)))
+  }
+```
+
+If we want to add many more blocks we notice that it takes increasingly more time. The reason is that the proof number increases exponentially.
+
+```{r run_time, echo = FALSE} 
+  # Create blockchain
+  blockchain <- list(block_genesis)
+  previous_block <- blockchain[[1]]
+
+  num_of_blocks_to_add <- 20
+  time_it_takes_to_create_new_block <- rep(0, num_of_blocks_to_add+1)
+  
+  for (i in 1: num_of_blocks_to_add){
+    time_it_takes_to_create_new_block[i+1] <- system.time({
+      block_to_add <- gen_new_block(previous_block) 
+      blockchain[i+1] <- list(block_to_add)
+      previous_block <- block_to_add})[3]
+  } # Add blocks to the chain
+
+    plot(time_it_takes_to_create_new_block,
+       type = "l",
+       ylab = "System Time elapsed (in sec.)",
+       xlab = "Block Index",
+       main = "Time it takes to mine a new block")
+```
+
+For cryptocurrenices like BitCoin this would be a problem as the time to create a new block should me more or less constant (around 10 minutes in the case of BitCoin). Therefore the difficulty of PoW has to be adjusted contionously to account for increasing computational speed and varying numbers of miners in the network at a given time. 
+
+Finally, this is how one block in our chain looks like: 
+
+```{r print_block}
+blockchain[[5]]
+```
+
+## Wrap up
+
+In this little blog post we created the tiniest blockchain. The main goal was to introduce how a blockchain looks like and introduce some of the core concepts behind it. Understanding the genius application of cryptography really shows why people get so excited about the possibilities of the blockchain.
+
+To put a blockchain into production much more work is needed: Set up an API, create wallets, digital signatures using public-private-key-pairs etc. I also only scratched the surface on the concept of decentralised consensus which is at the heart of the blockchain network.
+
+This little introduction draws on the blog post of [Gerald Nash](https://medium.com/crypto-currently/lets-build-the-tiniest-blockchain-e70965a248b) who implemented the "tiniest blockchain" in Python. I implemented it in R and added the PoW implementation from [Daniel van Flymen](https://hackernoon.com/learn-blockchains-by-building-one-117428612f46).
+
+To dive deeper into the topic of blockchains I recommend the brilliant, orginial [whitepaper on BitCoin from Satoshi Nakamoto](https://bitcoin.org/bitcoin.pdf) and the blog post from [BigData Dog](https://www.r-bloggers.com/building-your-own-blockchain-in-r/).
+
+
